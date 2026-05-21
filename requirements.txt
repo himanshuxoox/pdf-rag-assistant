@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+python-multipart
+pypdf
+openai
+sentence-transformers
+sqlalchemy
+psycopg2-binary
+pgvector
+python-dotenv
+streamlit
+request

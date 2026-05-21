@@ -1,0 +1,9 @@
+[theme]
+primaryColor = "#6366f1" # A modern indigo accent
+backgroundColor = "#0e1117"
+secondaryBackgroundColor = "#1e2130"
+textColor = "#fafafa"
+font = "sans serif"
+
+[ui]
+hideTopBar = true
