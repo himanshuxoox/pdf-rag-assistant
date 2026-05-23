@@ -12,6 +12,17 @@ from sentence_transformers import SentenceTransformer
 from sqlalchemy import create_engine, Column, String, Text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from pgvector.sqlalchemy import Vector
+import uuid
+import logging
+
+#=============================
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+logger = logging.getLogger(__name__)
+#==============================
 
 
 
@@ -36,10 +47,10 @@ app.add_middleware(
 # We replaced DB_MOCK with a real database connection!
 # IMPORTANT: Update "password" and "5332" to match your actual local Postgres setup.
 # Change this:
-# DATABASE_URL = "postgresql://postgres:password@localhost:5332/aidoc_db"
+DATABASE_URL = "postgresql://postgres:himanshu@localhost:5432/aidoc_db"
 
 # To this:
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5332/aidoc_db")
+#DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5332/aidoc_db")
 
 # The "Engine" is what physically connects Python to your Postgres database
 engine = create_engine(DATABASE_URL)
@@ -51,11 +62,13 @@ Base = declarative_base()
 class DocumentModel(Base):
     __tablename__ = "processed_documents"
 
-    id = Column(String(50), primary_key=True)      # e.g., "doc_1"
-    filename = Column(String(255), nullable=False) # e.g., "resume.pdf"
+    id = Column(String(50), primary_key=True)       # chunk-level ID, e.g. doc_3a9f2c1b_chunk_0
+    doc_id = Column(String(50), nullable=False)      # parent document ID (new)
+    filename = Column(String(255), nullable=False)
     status = Column(String(50), default="processing")
-    raw_text = Column(Text, nullable=True)         # The extracted words
-    summary = Column(Text, nullable=True)          # The AI's summary
+    raw_text = Column(Text, nullable=True)           # text of THIS chunk only
+    summary = Column(Text, nullable=True)            # only on chunk_0 (the summary row)
+    embedding = Column(Vector(384), nullable=True)
     
     # THE MAGIC: pgvector allows us to store the 384 math numbers right in the database!
     embedding = Column(Vector(384), nullable=True) 
@@ -94,9 +107,14 @@ client =  OpenAI(
 # ZONE 4: THE SCHEMAS
 # ==========================================
 
+class ChatMessage(BaseModel):
+    role: str      # "user" or "assistant"
+    content: str
+
 class ChatRequest(BaseModel):
     document_id: str
     message: str
+    history: list[ChatMessage] = []  # full conversation so far
 
 # class SearchQuery(BaseModel):
 #     query: str
@@ -154,6 +172,25 @@ class ChatRequest(BaseModel):
 #     except Exception as e:
 #         DB_MOCK[doc_id]["status"] = f"failed: {str(e)}"
 
+def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
+    """
+    Splits text into overlapping chunks.
+    chunk_size = how many words per chunk
+    overlap    = how many words to repeat at the start of the next chunk
+                 (so sentences at boundaries aren't lost)
+    """
+    words = text.split()
+    chunks = []
+    start = 0
+
+    while start < len(words):
+        end = start + chunk_size
+        chunk = " ".join(words[start:end])
+        chunks.append(chunk)
+        start += chunk_size - overlap  # step forward, but repeat 'overlap' words
+
+    return chunks
+
 def process_document_task(doc_id: str, raw_text: str):
     """
     Background task to clean text, generate a summary, and create embedding
@@ -176,33 +213,43 @@ def process_document_task(doc_id: str, raw_text: str):
         )
         summary = summary_response.choices[0].message.content
 
-        # Step 3: Create the Math Vector
-        local_vector = embedding_model.encode(cleaned_text[:4000]).tolist()
-        
-        # Step 4: SAVE TO POSTGRES!
-        # Find the specific row we created during the /upload endpoint...
-        db_doc = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
-        
-        # ...and fill in all the blank columns with our new AI data
-        if db_doc:
-            db_doc.raw_text = cleaned_text
-            db_doc.summary = summary
-            db_doc.embedding = local_vector
-            db_doc.status = "completed"
-            
-            # Commit is like pressing "Save" in a Word document
-            db.commit()
-            print(f"Successfully processed and stored document: {doc_id}")
-            
+        # Split into chunks
+        chunks = chunk_text(cleaned_text, chunk_size=500, overlap=50)
+        print(f"Document {doc_id} split into {len(chunks)} chunks")
+
+        for i, chunk in enumerate(chunks):
+            chunk_id = f"{doc_id}_chunk_{i}"
+            vector = embedding_model.encode(chunk).tolist()
+
+            chunk_doc = DocumentModel(
+                id=chunk_id,
+                doc_id=doc_id,                          # link back to parent
+                filename=db.query(DocumentModel)
+                           .filter(DocumentModel.id == doc_id)
+                           .first().filename,
+                status="completed",
+                raw_text=chunk,
+                summary=summary if i == 0 else None,    # summary only on first chunk
+                embedding=vector
+            )
+            db.add(chunk_doc)
+
+        # Mark the original placeholder row as completed too
+        original = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
+        if original:
+            original.status = "completed"
+            original.summary = summary
+
+        db.commit()
+        print(f"Stored {len(chunks)} chunks for {doc_id}")
+
     except Exception as e:
-        db_doc = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
-        if db_doc:
-            db_doc.status = f"failed: {str(e)}"
+        doc = db.query(DocumentModel).filter(DocumentModel.id == doc_id).first()
+        if doc:
+            doc.status = f"failed: {str(e)}"
             db.commit()
     finally:
-        # Always close the database door when you are done!
         db.close()
-
 
 # ==========================================
 # ZONE 6: THE API ENDPOINTS
@@ -268,11 +315,12 @@ async def upload_document(background_tasks: BackgroundTasks, file: UploadFile = 
             raise HTTPException(status_code=400, detail="Could not extract text from this PDF.")
         
         # Create a unique ID based on how many documents are already in Postgres
-        doc_count = db.query(DocumentModel).count()
-        doc_id = f"doc_{doc_count + 1}"
+        # doc_count = db.query(DocumentModel).count()
+        doc_id = f"doc_{uuid.uuid4().hex[:8]}"
+        logger.info(f"doc_id--->>> {doc_id}")
         
         # Create a brand new row in Postgres (It will be mostly empty until the background task finishes)
-        new_doc = DocumentModel(id=doc_id, filename=file.filename, status="processing")
+        new_doc = DocumentModel(id=doc_id, doc_id=doc_id, filename=file.filename, status="processing")
         db.add(new_doc)
         db.commit()
 
@@ -330,6 +378,30 @@ async def get_document_status(doc_id: str):
 #     except Exception as e:
 #         raise HTTPException(status_code=500, detail=str(e))
 
+# @app.post("/chat")
+# async def chat_with_document(payload: ChatRequest):
+#     db = SessionLocal()
+#     db_doc = db.query(DocumentModel).filter(DocumentModel.id == payload.document_id).first()
+#     db.close()
+
+#     if not db_doc or db_doc.status != "completed":
+#         raise HTTPException(status_code=400, detail="Document is not ready or does not exist.")
+
+#     # Grab the text directly from Postgres!
+#     context = db_doc.raw_text
+    
+#     try:
+#         response = client.chat.completions.create(
+#             model="openai/gpt-oss-20b", 
+#             messages=[
+#                 {"role": "system", "content": f"You are a helpful assistant. Answer questions based ONLY on the following context:\n\n{context[:12000]}"},
+#                 {"role": "user", "content": payload.message}
+#             ]
+#         )
+#         return {"response": response.choices[0].message.content}
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/chat")
 async def chat_with_document(payload: ChatRequest):
     db = SessionLocal()
@@ -339,21 +411,34 @@ async def chat_with_document(payload: ChatRequest):
     if not db_doc or db_doc.status != "completed":
         raise HTTPException(status_code=400, detail="Document is not ready or does not exist.")
 
-    # Grab the text directly from Postgres!
-    context = db_doc.raw_text
-    
+    if not payload.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+
+    context = db_doc.summary or db_doc.raw_text  # use summary as context for efficiency
+
+    # Build the messages list: system + history + new question
+    messages = [
+        {
+            "role": "system",
+            "content": f"You are a helpful assistant. Answer questions based ONLY on the following document context:\n\n{context[:8000]}"
+        }
+    ]
+
+    # Add previous conversation turns
+    for turn in payload.history[-10:]:  # keep last 10 turns to avoid token overflow
+        messages.append({"role": turn.role, "content": turn.content})
+
+    # Add the new question
+    messages.append({"role": "user", "content": payload.message})
+
     try:
         response = client.chat.completions.create(
-            model="openai/gpt-oss-20b", 
-            messages=[
-                {"role": "system", "content": f"You are a helpful assistant. Answer questions based ONLY on the following context:\n\n{context[:12000]}"},
-                {"role": "user", "content": payload.message}
-            ]
+            model="openai/gpt-oss-20b",
+            messages=messages
         )
         return {"response": response.choices[0].message.content}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 # @app.post("/search")
 # async def search_documents(payload: SearchQuery):
 #     """
@@ -376,34 +461,68 @@ class SearchQuery(BaseModel):
     query: str
     limit: int = 3 # How many results to return
 
+# @app.post("/search")
+# async def search_documents(payload: SearchQuery):
+#     db = SessionLocal()
+    
+#     try:
+#         # Step 1: Turn the user's question into a math vector
+#         # We use the exact same "Librarian" AI model we used when saving the PDF
+#         question_vector = embedding_model.encode(payload.query).tolist()
+        
+#         # Step 2: Ask Postgres to find the closest matches
+#         # The `<=>` operator is pgvector's symbol for "Cosine Similarity Distance"
+#         # We order by this distance, so the most relevant documents come first.
+#         results = db.query(DocumentModel).order_by(
+#             DocumentModel.embedding.cosine_distance(question_vector)
+#         ).limit(payload.limit).all()
+        
+#         # Step 3: Format the response so the frontend can read it easily
+#         formatted_results = []
+#         for doc in results:
+#             formatted_results.append({
+#                 "document_id": doc.id,
+#                 "filename": doc.filename,
+#                 "summary": doc.summary,
+#                 # We do NOT send the vector back to the frontend, it's just giant list of numbers!
+#             })
+            
+#         return {"results": formatted_results}
+        
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+#     finally:
+#         db.close()
+
 @app.post("/search")
 async def search_documents(payload: SearchQuery):
     db = SessionLocal()
-    
     try:
-        # Step 1: Turn the user's question into a math vector
-        # We use the exact same "Librarian" AI model we used when saving the PDF
         question_vector = embedding_model.encode(payload.query).tolist()
-        
-        # Step 2: Ask Postgres to find the closest matches
-        # The `<=>` operator is pgvector's symbol for "Cosine Similarity Distance"
-        # We order by this distance, so the most relevant documents come first.
-        results = db.query(DocumentModel).order_by(
+
+        # Search across all chunks
+        results = db.query(DocumentModel).filter(
+            DocumentModel.doc_id != None  # only chunk rows, not placeholder
+        ).order_by(
             DocumentModel.embedding.cosine_distance(question_vector)
-        ).limit(payload.limit).all()
-        
-        # Step 3: Format the response so the frontend can read it easily
-        formatted_results = []
-        for doc in results:
-            formatted_results.append({
-                "document_id": doc.id,
+        ).limit(payload.limit * 3).all()  # fetch more, then deduplicate
+
+        # Deduplicate: keep only the best chunk per document
+        seen_docs = {}
+        for chunk in results:
+            parent = chunk.doc_id or chunk.id
+            if parent not in seen_docs:
+                seen_docs[parent] = chunk
+
+        formatted = []
+        for doc in list(seen_docs.values())[:payload.limit]:
+            formatted.append({
+                "document_id": doc.doc_id,
                 "filename": doc.filename,
-                "summary": doc.summary,
-                # We do NOT send the vector back to the frontend, it's just giant list of numbers!
+                "summary": doc.summary or doc.raw_text[:200] + "...",
             })
-            
-        return {"results": formatted_results}
-        
+
+        return {"results": formatted}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:

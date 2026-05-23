@@ -3,10 +3,10 @@ import streamlit as st
 import requests
 import time
 
-# API_URL = "http://127.0.0.1:8000"
+API_URL = "http://127.0.0.1:8000"
 
 # To this:
-API_URL = os.getenv("BACKEND_API_URL", "http://127.0.0.1:8000")
+#API_URL = os.getenv("BACKEND_API_URL", "http://127.0.0.1:8000")
 
 # Must be the first Streamlit command
 st.set_page_config(
@@ -149,6 +149,7 @@ if "current_doc_id" in st.session_state:
                     st.session_state.messages.append({"role": "assistant", "content": ai_response})
                 else:
                     st.error("Error communicating with AI backend.")
+
 
 else:
     # Empty State UI
