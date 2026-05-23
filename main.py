@@ -35,7 +35,11 @@ app.add_middleware(
 # ==========================================
 # We replaced DB_MOCK with a real database connection!
 # IMPORTANT: Update "password" and "5332" to match your actual local Postgres setup.
-DATABASE_URL = "postgresql://postgres:himanshu@localhost:5432/aidoc_db"
+# Change this:
+# DATABASE_URL = "postgresql://postgres:password@localhost:5332/aidoc_db"
+
+# To this:
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5332/aidoc_db")
 
 # The "Engine" is what physically connects Python to your Postgres database
 engine = create_engine(DATABASE_URL)

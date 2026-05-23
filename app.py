@@ -1,8 +1,12 @@
+import os
 import streamlit as st
 import requests
 import time
 
-API_URL = "http://127.0.0.1:8000"
+# API_URL = "http://127.0.0.1:8000"
+
+# To this:
+API_URL = os.getenv("BACKEND_API_URL", "http://127.0.0.1:8000")
 
 # Must be the first Streamlit command
 st.set_page_config(
