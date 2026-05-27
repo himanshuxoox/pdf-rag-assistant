@@ -295,14 +295,7 @@ st.markdown("""
         border-color: var(--accent) !important;
         color: var(--accent) !important;
     }
-    /* ---------- Chat area wrapper — force light bg so messages are never on dark ---------- */
-    [data-testid="stVerticalBlock"],
-    [data-testid="stMainBlockContainer"],
-    .main .block-container {
-        background: var(--bg) !important;
-    }
-
-    /* ---------- Chat messages ---------- */
+ /* ---------- Chat messages ---------- */
     [data-testid="stChatMessage"] {
         background: transparent !important;
         border: none !important;
@@ -310,8 +303,6 @@ st.markdown("""
         margin-bottom: 0.25rem;
         animation: fadeUp 0.35s ease;
     }
-
-    /* User bubble — warm cream card */
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
         background: var(--user-bubble) !important;
         border-radius: 18px !important;
@@ -319,96 +310,52 @@ st.markdown("""
         margin-bottom: 0.75rem;
         box-shadow: var(--shadow-sm);
     }
-
-    /* ALL text inside any chat message — always dark, always visible */
-    [data-testid="stChatMessage"] p,
-    [data-testid="stChatMessage"] span,
-    [data-testid="stChatMessage"] li,
-    [data-testid="stChatMessage"] td,
-    [data-testid="stChatMessage"] h1,
-    [data-testid="stChatMessage"] h2,
-    [data-testid="stChatMessage"] h3,
-    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"],
-    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] * {
-        color: var(--text) !important;
+    [data-testid="stChatMessage"] p {
         font-size: 1rem;
         line-height: 1.7;
+        color: var(--text);
     }
 
     /* Avatar styling */
     [data-testid="stChatMessage"] [data-testid^="chatAvatar"] {
         border-radius: 10px;
-        background: var(--bg-elev) !important;
+        background: var(--bg-elev);
         border: 1px solid var(--border);
         box-shadow: var(--shadow-sm);
-        color: var(--text) !important;
     }
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) [data-testid^="chatAvatar"] {
-        background: linear-gradient(135deg, var(--accent-2) 0%, var(--accent) 100%) !important;
-        color: #fff !important;
+        background: linear-gradient(135deg, var(--accent-2) 0%, var(--accent) 100%);
+        color: #fff;
         border-color: transparent;
     }
 
     /* ---------- Chat input (sticky / glassy) ---------- */
-
-    /* Bottom container — must be light, not dark */
-    [data-testid="stBottomBlockContainer"] {
-        background: var(--bg) !important;
-        padding-top: 1.5rem !important;
-        padding-bottom: 0.5rem !important;
-    }
-
-    /* The outer stChatInput wrapper */
-    [data-testid="stChatInput"],
-    [data-testid="stChatInputContainer"],
-    .stChatInputContainer {
-        background: #ffffff !important;
+    [data-testid="stChatInput"] {
+        background: rgba(255, 255, 255, 0.85) !important;
+        backdrop-filter: blur(16px) saturate(140%);
+        -webkit-backdrop-filter: blur(16px) saturate(140%);
         border: 1px solid var(--border) !important;
         border-radius: 18px !important;
-        box-shadow: var(--shadow-md) !important;
-        padding: 0.3rem !important;
+        box-shadow: var(--shadow-md);
+        padding: 0.3rem;
         transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
     }
-    [data-testid="stChatInput"]:focus-within,
-    [data-testid="stChatInputContainer"]:focus-within {
+    [data-testid="stChatInput"]:focus-within {
         border-color: var(--accent) !important;
-        box-shadow: 0 8px 28px rgba(201, 99, 66, 0.14) !important;
+        box-shadow: 0 8px 28px rgba(201, 99, 66, 0.14);
         transform: translateY(-1px);
     }
-
-    /* The actual textarea — explicit white bg + dark text so typing is always visible */
-    [data-testid="stChatInput"] textarea,
-    [data-testid="stChatInputContainer"] textarea,
-    .stChatInputContainer textarea {
-        background: #ffffff !important;
-        color: #1f1e1d !important;
-        caret-color: var(--accent) !important;
+    [data-testid="stChatInput"] textarea {
+        background: transparent !important;
+        color: var(--text) !important;
         font-size: 1rem !important;
-        font-family: 'Inter', sans-serif !important;
-        line-height: 1.5 !important;
-        border-radius: 14px !important;
-        padding: 0.6rem 0.75rem !important;
-    }
-    [data-testid="stChatInput"] textarea::placeholder,
-    [data-testid="stChatInputContainer"] textarea::placeholder {
-        color: var(--text-faint) !important;
-        opacity: 1 !important;
+        line-height: 1.5;
     }
 
-    /* Send button inside chat input */
-    [data-testid="stChatInput"] button,
-    [data-testid="stChatInputContainer"] button {
-        background: linear-gradient(135deg, var(--accent-2), var(--accent)) !important;
-        border-radius: 12px !important;
-        color: #fff !important;
-        border: none !important;
-        box-shadow: 0 2px 8px rgba(201, 99, 66, 0.3) !important;
-        transition: opacity 0.15s ease !important;
-        width: auto !important;
-    }
-    [data-testid="stChatInput"] button:hover,
-    [data-testid="stChatInputContainer"] button:hover {
-        opacity: 0.88 !important;
+    /* Add a subtle fade so the page text doesn't crash into the floating bar */
+    [data-testid="stBottomBlockContainer"] {
+        background: linear-gradient(to bottom, transparent, var(--bg) 30%) !important;
+        padding-top: 2rem !important;
     }
 
     /* ---------- Expander ---------- */
@@ -419,33 +366,10 @@ st.markdown("""
         box-shadow: var(--shadow-sm) !important;
         overflow: hidden;
     }
-    /* Expander toggle row */
     [data-testid="stExpander"] summary {
-        background: var(--bg-elev) !important;
-        color: var(--text) !important;
-        font-weight: 600 !important;
-        font-size: 0.95rem !important;
-        padding: 0.9rem 1.1rem !important;
-        letter-spacing: 0.01em;
-    }
-    /* Only style text nodes, NOT the arrow SVG icon */
-    [data-testid="stExpander"] summary span,
-    [data-testid="stExpander"] summary p {
-        background: transparent !important;
-        color: var(--text) !important;
-    }
-    /* Expander content area */
-    [data-testid="stExpander"] > div[data-testid],
-    [data-testid="stExpander"] > div {
-        background: var(--bg-elev) !important;
-        padding: 0.5rem 1rem 1rem !important;
-    }
-    /* Text inside expander content */
-    [data-testid="stExpander"] [data-testid="stMarkdownContainer"] p,
-    [data-testid="stExpander"] [data-testid="stMarkdownContainer"] * {
-        color: var(--text) !important;
-        font-size: 0.95rem !important;
-        line-height: 1.7 !important;
+        font-weight: 500;
+        color: var(--text);
+        padding: 0.85rem 1rem;
     }
 
     /* ---------- Alerts ---------- */
@@ -466,68 +390,16 @@ st.markdown("""
         border: 1px solid var(--border) !important;
         border-radius: 14px !important;
         box-shadow: var(--shadow-sm);
-        width: 100% !important;
-        min-width: 0 !important;
-        overflow: hidden !important;
-    }
-    /* Status label — prevent word-break, single line with ellipsis */
-    [data-testid="stStatusWidget"] p,
-    [data-testid="stStatusWidget"] span,
-    [data-testid="stStatus"] p,
-    [data-testid="stStatus"] span,
-    [data-testid="stStatus"] > div,
-    [data-testid="stStatusWidget"] > div {
-        color: var(--text) !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        font-size: 0.92rem !important;
-        max-width: 100% !important;
-    }
-    /* Status summary toggle row */
-    [data-testid="stStatus"] summary,
-    [data-testid="stStatusWidget"] summary {
-        background: var(--bg-elev) !important;
-        color: var(--text) !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        padding: 0.75rem 1rem !important;
-        font-size: 0.92rem !important;
-        font-weight: 500 !important;
     }
 
     /* ---------- Code ---------- */
-    /* Inline code */
     code {
-        background: #f0ece6 !important;
+        background: var(--sidebar-bg) !important;
         color: var(--accent) !important;
         border-radius: 6px;
         padding: 2px 6px;
         font-size: 0.9em;
         font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace !important;
-    }
-
-    /* Code & pre blocks (e.g. ASCII diagrams, multi-line code) inside chat */
-    [data-testid="stChatMessage"] pre,
-    [data-testid="stChatMessage"] .stCode,
-    [data-testid="stChatMessage"] [data-testid="stCode"] {
-        background: #1e1e2e !important;
-        border-radius: 10px !important;
-        padding: 1rem !important;
-        overflow-x: auto !important;
-        border: 1px solid rgba(255,255,255,0.08) !important;
-    }
-    /* Text INSIDE pre/code blocks should stay white — override the broad * rule */
-    [data-testid="stChatMessage"] pre *,
-    [data-testid="stChatMessage"] pre code,
-    [data-testid="stChatMessage"] .stCode *,
-    [data-testid="stChatMessage"] [data-testid="stCode"] * {
-        color: #cdd6f4 !important;
-        background: transparent !important;
-        font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace !important;
-        font-size: 0.85rem !important;
-        line-height: 1.6 !important;
     }
 
     /* ===========================================================
@@ -608,7 +480,7 @@ st.markdown("""
         letter-spacing: -0.025em;
         line-height: 1.15;
     }
-    .claude-hero h1 .grad {
+	.claude-hero h1 .grad {
         background: linear-gradient(135deg, var(--accent-2), var(--accent));
         -webkit-background-clip: text;
         background-clip: text;
@@ -934,7 +806,7 @@ if "current_doc_id" in st.session_state:
                 <div class="label">Chatting with</div>
                 <h2>{filename}</h2>
             </div>
-           <!-- <div class="model-pill"><span class="dot"></span>Claude Sonnet 4.6</div> -->
+            <div class="model-pill"><span class="dot"></span>Claude Sonnet 4.6</div>
         </div>
         """,
         unsafe_allow_html=True
@@ -949,9 +821,9 @@ if "current_doc_id" in st.session_state:
         st.session_state.messages = []
 
     for message in st.session_state.messages:
-        avatar = "👤" if message["role"] == "user" else "🤖"
+        avatar = "👤" if message["role"] == "user" else "✦"
         with st.chat_message(message["role"], avatar=avatar):
-            st.markdown(message["content"], unsafe_allow_html=True)
+            st.markdown(message["content"])
 
     if prompt := st.chat_input("Reply to Claude..."):
 
@@ -959,7 +831,7 @@ if "current_doc_id" in st.session_state:
         with st.chat_message("user", avatar="👤"):
             st.markdown(prompt)
 
-        with st.chat_message("assistant", avatar="🤖"):
+        with st.chat_message("assistant", avatar="✦"):
             with st.spinner(""):
                 chat_payload = {
                     "document_id": st.session_state["current_doc_id"],
@@ -969,24 +841,8 @@ if "current_doc_id" in st.session_state:
 
                 if chat_res.status_code == 200:
                     ai_response = chat_res.json()["response"]
-                    st.markdown(ai_response, unsafe_allow_html=True)
+                    st.markdown(ai_response)
                     st.session_state.messages.append({"role": "assistant", "content": ai_response})
-                    # Auto-scroll to bottom so the new response is always visible
-                    st.markdown(
-                        """<script>
-                        (function() {
-                            // Wait a tick for Streamlit to paint the new message
-                            setTimeout(function() {
-                                var mainEl = window.parent.document.querySelector(
-                                    '[data-testid="stAppScrollToBottomContainer"]'
-                                    ) || window.parent.document.querySelector('section.main');
-                                if (mainEl) mainEl.scrollTop = mainEl.scrollHeight;
-                                window.parent.scrollTo(0, window.parent.document.body.scrollHeight);
-                            }, 120);
-                        })();
-                        </script>""",
-                        unsafe_allow_html=True
-                    )
                 else:
                     st.error("Error communicating with AI backend.")
 
@@ -1022,67 +878,30 @@ else:
 
 
 # ==========================================
-# FOOTER — injected as position:fixed so it never lands inside the chat bar
+# FOOTER
 # ==========================================
 DEVELOPER_NAME = "Himanshu Singh"
-GITHUB_URL = "https://github.com/himanshuxoox"
+GITHUB_URL = "https://github.com/your-username-here"  # <-- replace with your GitHub URL
 BUSINESS_EMAIL = "himanshu.singh43@infosys.com"
 
 st.markdown(
     f"""
-    <style>
-        /* Fixed footer sits below everything, never overlaps the chat input */
-        .claude-footer-fixed {{
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            z-index: 999;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 1rem;
-            padding: 6px 1rem;
-            background: rgba(248, 244, 238, 0.92);
-            backdrop-filter: blur(10px);
-            border-top: 1px solid rgba(201,99,66,0.12);
-            font-size: 0.78rem;
-            color: #6b6460;
-            font-family: 'Inter', sans-serif;
-        }}
-        /* Push main content up so footer never covers the chat input */
-        [data-testid="stBottomBlockContainer"] {{
-            padding-bottom: 2.5rem !important;
-        }}
-        .claude-footer-fixed .dev {{ font-weight: 600; color: #3d3530; }}
-        .claude-footer-fixed a {{
-            display: inline-flex; align-items: center; gap: 4px;
-            color: #6b6460; text-decoration: none;
-            transition: color 0.2s;
-        }}
-        .claude-footer-fixed a:hover {{ color: #c96342; }}
-        .claude-footer-fixed .sep {{
-            width: 4px; height: 4px; border-radius: 50%;
-            background: #c9b8ac; display: inline-block;
-        }}
-        .claude-footer-fixed svg {{ width: 13px; height: 13px; }}
-    </style>
-    <div class="claude-footer-fixed">
+    <div class="claude-footer">
         <span>Built by <span class="dev">{DEVELOPER_NAME}</span></span>
         <span class="sep"></span>
-        <a href="{GITHUB_URL}" target="_blank" rel="noopener noreferrer">
-            <svg viewBox="0 0 24 24" fill="currentColor">
+        <a href="{GITHUB_URL}" target="_blank" rel="noopener noreferrer" title="GitHub profile">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.28-.01-1.02-.02-2-3.2.7-3.87-1.54-3.87-1.54-.52-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.71 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18a11.06 11.06 0 0 1 5.79 0c2.21-1.49 3.18-1.18 3.18-1.18.63 1.59.23 2.77.11 3.06.74.81 1.19 1.84 1.19 3.1 0 4.44-2.69 5.42-5.26 5.7.41.36.78 1.06.78 2.14 0 1.55-.01 2.8-.01 3.18 0 .31.21.68.8.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5Z"/>
             </svg>
-            GitHub
+            <span>GitHub</span>
         </a>
         <span class="sep"></span>
-        <a href="mailto:{BUSINESS_EMAIL}?subject=Business%20inquiry">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <a href="mailto:{BUSINESS_EMAIL}?subject=Business%20inquiry" title="Email for business inquiries">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
                 <polyline points="22,6 12,13 2,6"/>
             </svg>
-            Email
+            <span>Email</span>
         </a>
     </div>
     """,
