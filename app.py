@@ -851,8 +851,11 @@ with st.sidebar:
             response = requests.post(f"{API_URL}/upload", files=files)
 
             if response.status_code == 200:
-                doc_id = response.json()["document_id"]
+                resp_data = response.json()
+                doc_id = resp_data["document_id"]
                 st.session_state["current_doc_id"] = doc_id
+                if resp_data.get("duplicate"):
+                    st.info(f"⚡ {resp_data['message']}", icon=None)
 
                 st.write("Analyzing and vectorizing…")
                 while True:
@@ -876,14 +879,33 @@ with st.sidebar:
             else:
                 status.update(label="Upload failed", state="error")
 
-    # ----- Recents -----
+    # ----- Recents — fetched live from DB -----
     st.markdown('<div class="side-eyebrow">Recent</div>', unsafe_allow_html=True)
-    if "current_doc_id" in st.session_state:
-        _active = st.session_state.get("filename", "Untitled")
-        st.markdown(
-            f'<div class="recent-item active"><span class="dot"></span>{_active}</div>',
-            unsafe_allow_html=True
-        )
+    try:
+        _docs_res = requests.get(f"{API_URL}/documents", timeout=3)
+        _all_docs = _docs_res.json().get("documents", []) if _docs_res.status_code == 200 else []
+    except Exception:
+        _all_docs = []
+
+    if _all_docs:
+        for _d in _all_docs:
+            _is_active = _d["document_id"] == st.session_state.get("current_doc_id")
+            _cls = "recent-item active" if _is_active else "recent-item"
+            # Clickable label using a button styled to look like a list item
+            if st.button(
+                f"{'● ' if _is_active else '○ '}{_d['filename']}",
+                key=f"recent_{_d['document_id']}",
+                use_container_width=True,
+            ):
+                if not _is_active:
+                    load_res = requests.get(f"{API_URL}/load-doc/{_d['document_id']}")
+                    if load_res.status_code == 200:
+                        data = load_res.json()
+                        st.session_state["current_doc_id"] = data["document_id"]
+                        st.session_state["filename"] = data["filename"]
+                        st.session_state["summary"] = data["summary"]
+                        st.session_state["messages"] = []
+                        st.rerun()
     else:
         st.markdown('<div class="recent-empty">No documents yet</div>', unsafe_allow_html=True)
 
@@ -895,16 +917,56 @@ with st.sidebar:
     with _sm:
         _search_clicked = st.button("Search")
 
+    # ── When Search is clicked: fetch and STORE results in session_state ──────
+    # This is critical — storing in session_state means results persist across
+    # reruns (e.g. when the user clicks "Chat with this doc")
     if _search_clicked and search_query:
         with st.spinner("Searching..."):
-            res = requests.post(f"{API_URL}/search", json={"query": search_query, "limit": 2})
+            res = requests.post(f"{API_URL}/search", json={"query": search_query, "limit": 3})
             if res.status_code == 200:
-                results = res.json()["results"]
-                if not results:
-                    st.info("No relevant matches found.")
-                for r in results:
-                    with st.expander(r['filename'], expanded=False):
-                        st.write(r['summary'][:150] + "...")
+                st.session_state["search_results"] = res.json().get("results", [])
+                st.session_state["search_query_text"] = search_query
+            else:
+                st.session_state["search_results"] = []
+                st.error("Search failed. Is the backend running?")
+
+    # ── Always render whatever results are stored (survives reruns) ───────────
+    _results = st.session_state.get("search_results", [])
+    if _results:
+        st.markdown(
+            f'<div style="font-size:0.75rem;color:var(--text-muted);margin:4px 0 8px;">Results for: '
+            f'<b>{st.session_state.get("search_query_text","")}</b></div>',
+            unsafe_allow_html=True,
+        )
+        for r in _results:
+            doc_id = r["document_id"]
+            with st.expander(f"📄 {r['filename']}", expanded=False):
+                summary_text = r.get("summary", "No summary available.")
+                # Show first 400 chars in sidebar, full summary opens in chat
+                preview = summary_text[:400] + ("…" if len(summary_text) > 400 else "")
+                st.markdown(preview, unsafe_allow_html=True)
+
+                btn_key = f"chat_btn_{doc_id}"
+                if st.button("💬 Chat with this doc", key=btn_key, type="primary", use_container_width=True):
+                    # Store intent — handled BELOW the sidebar block to avoid rerun race
+                    st.session_state["_pending_load_doc_id"] = doc_id
+
+    # ── Handle pending "load doc" intent (set by button above) ───────────────
+    # We handle this OUTSIDE the button callback so session_state is fully
+    # committed before st.rerun() is called.
+    if st.session_state.get("_pending_load_doc_id"):
+        _pending = st.session_state.pop("_pending_load_doc_id")
+        load_res = requests.get(f"{API_URL}/load-doc/{_pending}")
+        if load_res.status_code == 200:
+            data = load_res.json()
+            st.session_state["current_doc_id"] = data["document_id"]
+            st.session_state["filename"]        = data["filename"]
+            st.session_state["summary"]         = data["summary"]
+            st.session_state["messages"]        = []
+            st.session_state["search_results"]  = []   # clear results after loading
+            st.rerun()
+        else:
+            st.error("Could not load document.")
 
     # ----- User pill (account chip) -----
     # st.markdown(
@@ -948,47 +1010,197 @@ if "current_doc_id" in st.session_state:
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
+    # ── Per-session question rate limit ──────────────────────────────────────
+    QUESTION_LIMIT = 10
+    if "questions_asked" not in st.session_state:
+        st.session_state.questions_asked = 0
+
+    _questions_used = st.session_state.questions_asked
+    _questions_left = max(0, QUESTION_LIMIT - _questions_used)
+
+    # Counter bar — shown above chat history
+    _bar_color = "#c96342" if _questions_left <= 3 else "#6b9e78"
+    _bar_pct   = int((_questions_used / QUESTION_LIMIT) * 100)
+    st.markdown(
+        f"""
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:0.75rem;">
+            <div style="flex:1;height:5px;background:#ebe8de;border-radius:99px;overflow:hidden;">
+                <div style="width:{_bar_pct}%;height:100%;background:{_bar_color};
+                            border-radius:99px;transition:width 0.4s ease;"></div>
+            </div>
+            <span style="font-size:0.78rem;color:{_bar_color};font-weight:600;white-space:nowrap;">
+                {_questions_left} / 10 questions left
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     for message in st.session_state.messages:
         avatar = "👤" if message["role"] == "user" else "🤖"
         with st.chat_message(message["role"], avatar=avatar):
             st.markdown(message["content"], unsafe_allow_html=True)
+            # Re-render citations stored with assistant messages
+            if message["role"] == "assistant" and message.get("citations"):
+                with st.expander(f"📎 Sources ({len(message['citations'])} chunks used)", expanded=False):
+                    for src in message["citations"]:
+                        st.markdown(
+                            f"""<div style="border-left:3px solid #c96342;
+                                padding:0.5rem 0.75rem;margin-bottom:0.6rem;
+                                background:#fdf3ef;border-radius:0 8px 8px 0;">
+                                <span style="font-size:0.75rem;font-weight:600;
+                                    color:#c96342;">[{src['ref']}] {src['chunk']}</span>
+                                <p style="font-size:0.82rem;color:#3d3530;
+                                    margin:0.25rem 0 0;line-height:1.5;">
+                                    {src['preview']}</p>
+                            </div>""",
+                            unsafe_allow_html=True,
+                        )
 
-    if prompt := st.chat_input("Reply to Claude..."):
+    # Disable input and show wall when limit is reached
+    if _questions_left == 0:
+        st.markdown(
+            """
+            <div style="text-align:center;padding:1.5rem;background:#fdf3ef;
+                        border:1px solid #f0d5c8;border-radius:14px;margin-top:1rem;">
+                <div style="font-size:1.5rem;margin-bottom:0.5rem;">🔒</div>
+                <div style="font-weight:600;color:#c96342;font-size:1rem;">Session limit reached</div>
+                <div style="color:#7a7873;font-size:0.88rem;margin-top:0.4rem;">
+                    You've used all 10 questions for this session.<br>
+                    Refresh the page to start a new session.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        if prompt := st.chat_input(f"Reply to Claude… ({_questions_left} left)"):
 
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(prompt)
+            st.session_state.questions_asked += 1
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user", avatar="👤"):
+                st.markdown(prompt)
 
-        with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner(""):
-                chat_payload = {
-                    "document_id": st.session_state["current_doc_id"],
-                    "message": prompt
-                }
-                chat_res = requests.post(f"{API_URL}/chat", json=chat_payload)
+            with st.chat_message("assistant", avatar="🤖"):
+                    # Send full history EXCLUDING the current user message
+                    history_to_send = st.session_state.messages[:-1][-20:]
+                    chat_payload = {
+                        "document_id": st.session_state["current_doc_id"],
+                        "message": prompt,
+                        "history": history_to_send,
+                    }
 
-                if chat_res.status_code == 200:
-                    ai_response = chat_res.json()["response"]
-                    st.markdown(ai_response, unsafe_allow_html=True)
-                    st.session_state.messages.append({"role": "assistant", "content": ai_response})
-                    # Auto-scroll to bottom so the new response is always visible
-                    st.markdown(
-                        """<script>
-                        (function() {
-                            // Wait a tick for Streamlit to paint the new message
-                            setTimeout(function() {
-                                var mainEl = window.parent.document.querySelector(
-                                    '[data-testid="stAppScrollToBottomContainer"]'
-                                    ) || window.parent.document.querySelector('section.main');
-                                if (mainEl) mainEl.scrollTop = mainEl.scrollHeight;
-                                window.parent.scrollTo(0, window.parent.document.body.scrollHeight);
-                            }, 120);
-                        })();
-                        </script>""",
-                        unsafe_allow_html=True
-                    )
-                else:
-                    st.error("Error communicating with AI backend.")
+                    CITATION_SENTINEL = "__CITATIONS__:"
+                    try:
+                        with requests.post(
+                            f"{API_URL}/chat",
+                            json=chat_payload,
+                            stream=True,
+                            timeout=60,
+                        ) as chat_res:
+                            if chat_res.status_code == 200:
+
+                                # ── Custom streaming generator that hides the sentinel ────────
+                                # st.write_stream renders EVERYTHING it receives to the screen,
+                                # so we must intercept the sentinel BEFORE passing tokens to it.
+                                # Strategy: buffer tokens until we see the sentinel, then stop
+                                # yielding — the citation JSON never reaches the screen.
+                                import json as _json
+
+                                answer_buf = []     # accumulates clean answer tokens
+                                citation_buf = []   # accumulates tokens after sentinel
+                                sentinel_found = [False]
+
+                                def clean_stream():
+                                    """Yields only answer tokens — stops at the sentinel."""
+                                    buffer = ""
+                                    for raw_token in chat_res.iter_content(
+                                        chunk_size=None, decode_unicode=True
+                                    ):
+                                        if sentinel_found[0]:
+                                            # Sentinel already hit — accumulate rest silently
+                                            citation_buf.append(raw_token)
+                                            continue
+
+                                        buffer += raw_token
+
+                                        if CITATION_SENTINEL in buffer:
+                                            # Split: yield only the answer part before sentinel
+                                            before, after = buffer.split(CITATION_SENTINEL, 1)
+                                            if before:
+                                                answer_buf.append(before)
+                                                yield before
+                                            citation_buf.append(after)
+                                            sentinel_found[0] = True
+                                        elif len(buffer) > len(CITATION_SENTINEL) * 2:
+                                            # Safe to flush — sentinel can't straddle this far back
+                                            flush = buffer[:-len(CITATION_SENTINEL)]
+                                            answer_buf.append(flush)
+                                            yield flush
+                                            buffer = buffer[-len(CITATION_SENTINEL):]
+                                        # else: keep buffering — sentinel may be mid-arrival
+
+                                    # Flush remaining buffer if no sentinel was found
+                                    if buffer and not sentinel_found[0]:
+                                        answer_buf.append(buffer)
+                                        yield buffer
+
+                                # Stream clean answer tokens to screen
+                                st.write_stream(clean_stream())
+
+                                # Assemble final answer and citations
+                                ai_response = "".join(answer_buf).strip()
+                                citations_raw = "".join(citation_buf).strip()
+                                try:
+                                    citations = _json.loads(citations_raw) if citations_raw else []
+                                except Exception:
+                                    citations = []
+
+                                # Store clean answer text (without sentinel) in history
+                                st.session_state.messages.append({
+                                    "role": "assistant",
+                                    "content": ai_response,
+                                    "citations": citations,
+                                })
+
+                                # ── Render citations as a collapsed expander ──────────────
+                                if citations:
+                                    with st.expander(f"📎 Sources ({len(citations)} chunks used)", expanded=False):
+                                        for src in citations:
+                                            st.markdown(
+                                                f"""<div style="border-left:3px solid #c96342;
+                                                    padding:0.5rem 0.75rem;margin-bottom:0.6rem;
+                                                    background:#fdf3ef;border-radius:0 8px 8px 0;">
+                                                    <span style="font-size:0.75rem;font-weight:600;
+                                                        color:#c96342;">[{src['ref']}] {src['chunk']}</span>
+                                                    <p style="font-size:0.82rem;color:#3d3530;
+                                                        margin:0.25rem 0 0;line-height:1.5;">
+                                                        {src['preview']}</p>
+                                                </div>""",
+                                                unsafe_allow_html=True,
+                                            )
+
+                                # Auto-scroll after streaming completes
+                                st.markdown(
+                                    """<script>
+                                    (function() {
+                                        setTimeout(function() {
+                                            var mainEl = window.parent.document.querySelector(
+                                                '[data-testid="stAppScrollToBottomContainer"]'
+                                                ) || window.parent.document.querySelector('section.main');
+                                            if (mainEl) mainEl.scrollTop = mainEl.scrollHeight;
+                                            window.parent.scrollTo(0, window.parent.document.body.scrollHeight);
+                                        }, 120);
+                                    })();
+                                    </script>""",
+                                    unsafe_allow_html=True,
+                                )
+                            else:
+                                st.error(f"Backend error {chat_res.status_code}. Is the server running?")
+                    except requests.exceptions.Timeout:
+                        st.error("Request timed out. The document may be too large — try a shorter question.")
+                    except requests.exceptions.ConnectionError:
+                        st.error("Could not reach the backend. Is it running on port 8000?")
 
 else:
     st.markdown(
